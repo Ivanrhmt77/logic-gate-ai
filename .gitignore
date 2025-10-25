@@ -92,5 +92,7 @@ target/
 # Exclude trained models
 /models/
 
+!/models/logic_gate_ai_selfplay_episode_14000.h5
+
 # exclude data from source control by default
 # /data/
