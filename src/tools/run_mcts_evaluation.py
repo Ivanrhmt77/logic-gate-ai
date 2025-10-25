@@ -3,17 +3,15 @@ import time
 from collections import defaultdict
 
 try:
-    from src.game_logic.state import GameState
-    from src.game_logic.mcts_agent import MCTSAgent
-    from src.config import ID_TO_CARD
+    from .evaluation_utils import setup_python_path, display_evaluation_results
 except ImportError:
-    import sys
-    import os
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-    
-    from src.game_logic.state import GameState
-    from src.game_logic.mcts_agent import MCTSAgent
-    from src.config import ID_TO_CARD
+    from evaluation_utils import setup_python_path, display_evaluation_results
+
+setup_python_path()
+
+from src.game_logic.state import GameState
+from src.game_logic.mcts_agent import MCTSAgent
+from src.config import ID_TO_CARD
 
 def evaluate_ai_performance(num_games=100, ai1_simulations=500, ai2_simulations=500, show_progress=True):
     ai1 = MCTSAgent(num_simulations=ai1_simulations, player_id=1)
@@ -23,7 +21,6 @@ def evaluate_ai_performance(num_games=100, ai1_simulations=500, ai2_simulations=
         'ai1_wins': 0,
         'ai2_wins': 0,
         'draws': 0,
-        'total_moves': [],
         'game_lengths': []
     }
 
@@ -61,8 +58,6 @@ def evaluate_ai_performance(num_games=100, ai1_simulations=500, ai2_simulations=
             results['ai2_wins'] += 1
         else:
             results['draws'] += 1
-
-        results['total_moves'].append(move_count)
         results['game_lengths'].append(move_count)
 
     if show_progress:
@@ -75,6 +70,15 @@ def evaluate_ai_performance(num_games=100, ai1_simulations=500, ai2_simulations=
     results['std_game_length'] = np.std(results['game_lengths'])
     results['min_game_length'] = np.min(results['game_lengths'])
     results['max_game_length'] = np.max(results['game_lengths'])
+
+    display_args = {
+        'p1_wins': results['ai1_wins'], 'p2_wins': results['ai2_wins'], 'draws': results['draws'],
+        'p1_win_rate': results['ai1_win_rate'], 'p2_win_rate': results['ai2_win_rate'],
+        'draw_rate': results['draw_rate'], 'avg_game_length': results['avg_game_length'],
+        'std_game_length': results['std_game_length'], 'min_game_length': results['min_game_length'],
+        'max_game_length': results['max_game_length']
+    }
+    display_evaluation_results(display_args, agent1_name=f"MCTS (P1, {ai1_simulations} sims)", agent2_name=f"MCTS (P2, {ai2_simulations} sims)")
 
     return results
 
@@ -95,13 +99,43 @@ def compare_different_simulations(num_games_per_config=50):
 
     for ai1_sims, ai2_sims in simulation_configs:
         print(f"\n🎯 Testing: AI1({ai1_sims} sims) vs AI2({ai2_sims} sims)")
-        results = evaluate_ai_performance(
-            num_games=num_games_per_config,
-            ai1_simulations=ai1_sims,
-            ai2_simulations=ai2_sims,
-            show_progress=True
-        )
+        
+        ai1 = MCTSAgent(num_simulations=ai1_sims, player_id=1)
+        ai2 = MCTSAgent(num_simulations=ai2_sims, player_id=2)
 
+        results = {
+            'ai1_wins': 0,
+            'ai2_wins': 0,
+            'draws': 0,
+            'game_lengths': []
+        }
+
+        for game_num in range(num_games_per_config):
+            game = GameState(player1_target=1, player2_target=0)
+            while not game.is_terminal():
+                valid_moves = game.get_valid_moves()
+                if not valid_moves:
+                    break
+                if game.current_player == 1:
+                    move = ai1.select_move(game)
+                else:
+                    move = ai2.select_move(game)
+                game.apply_move(move)
+            
+            winner = game.get_winner()
+            if winner == 1:
+                results['ai1_wins'] += 1
+            elif winner == 2:
+                results['ai2_wins'] += 1
+            else:
+                results['draws'] += 1
+            results['game_lengths'].append(len(game.card_slots) - np.count_nonzero(game.card_slots==0))
+
+        results['ai1_win_rate'] = results['ai1_wins'] / num_games_per_config
+        results['ai2_win_rate'] = results['ai2_wins'] / num_games_per_config
+        results['draw_rate'] = results['draws'] / num_games_per_config
+        results['avg_game_length'] = np.mean(results['game_lengths'])
+        
         comparison_results.append({
             'config': f"AI1({ai1_sims}) vs AI2({ai2_sims})",
             'ai1_sims': ai1_sims,
@@ -123,7 +157,6 @@ def compare_different_simulations(num_games_per_config=50):
               f"{res['draw_rate']:>6.1%} | {res['avg_length']:>10.2f}")
 
     print(f"{'='*90}\n")
-
     print("💡 INSIGHTS:")
     print("  • Semakin banyak simulasi MCTS → AI semakin kuat")
     print("  • Perbedaan simulasi yang besar → Win rate berbeda signifikan")
@@ -185,33 +218,6 @@ def evaluate_opening_strategies(num_games=100):
 
     print(f"{'='*70}\n")
 
-def display_evaluation_results(results):
-    print(f"\n{'='*70}")
-    print("📊 HASIL EVALUASI")
-    print(f"{'='*70}\n")
-
-    print("🏆 KEMENANGAN:")
-    print(f"  AI1 (Target=1): {results['ai1_wins']} wins ({results['ai1_win_rate']:.1%})")
-    print(f"  AI2 (Target=0): {results['ai2_wins']} wins ({results['ai2_win_rate']:.1%})")
-    print(f"  Draw:           {results['draws']} games ({results['draw_rate']:.1%})")
-
-    print(f"\n📈 STATISTIK GAME:")
-    print(f"  Rata-rata panjang game: {results['avg_game_length']:.2f} moves")
-    print(f"  Standar deviasi:        {results['std_game_length']:.2f} moves")
-    print(f"  Game terpendek:         {results['min_game_length']} moves")
-    print(f"  Game terpanjang:        {results['max_game_length']} moves")
-
-    print(f"\n📊 VISUALISASI WIN RATE:")
-    ai1_bar = "█" * int(results['ai1_win_rate'] * 50)
-    ai2_bar = "█" * int(results['ai2_win_rate'] * 50)
-    draw_bar = "█" * int(results['draw_rate'] * 50)
-
-    print(f"  AI1: {ai1_bar} {results['ai1_win_rate']:.1%}")
-    print(f"  AI2: {ai2_bar} {results['ai2_win_rate']:.1%}")
-    print(f"  Draw: {draw_bar} {results['draw_rate']:.1%}")
-
-    print(f"\n{'='*70}\n")
-
 def run_full_evaluation():
     print("\n" + "🚀"*35)
     print("SISTEM EVALUASI LENGKAP - GERBANG LOGIKA AI")
@@ -222,14 +228,12 @@ def run_full_evaluation():
     print("2. Evaluasi Komparatif (berbagai konfigurasi simulasi)")
     print("3. Evaluasi Strategi Pembukaan")
     print("4. Evaluasi Lengkap (semua di atas)")
-    print("5. Kembali ke game interaktif")
 
     while True:
-        choice = input("\nPilih (1-5): ").strip()
+        choice = input("\nPilih (1-4): ").strip()
 
         if choice == '1':
             results = evaluate_ai_performance(num_games=100, ai1_simulations=500, ai2_simulations=500)
-            display_evaluation_results(results)
             break
         elif choice == '2':
             compare_different_simulations(num_games_per_config=50)
@@ -243,8 +247,7 @@ def run_full_evaluation():
             print("\n" + "="*70)
             print("BAGIAN 1: EVALUASI STANDAR")
             print("="*70)
-            results = evaluate_ai_performance(num_games=100, ai1_simulations=500, ai2_simulations=500)
-            display_evaluation_results(results)
+            evaluate_ai_performance(num_games=100, ai1_simulations=500, ai2_simulations=500)
 
             print("\n" + "="*70)
             print("BAGIAN 2: EVALUASI KOMPARATIF")
@@ -258,12 +261,9 @@ def run_full_evaluation():
 
             print("\n✅ EVALUASI LENGKAP SELESAI!")
             break
-        elif choice == '5':
-            play_interactive_game()
-            break
         else:
-            print("❌ Pilih 1-5!")
+            print("❌ Pilih 1-4!")
 
 if __name__ == "__main__":
-    print("Menjalankan Mode Evaluasi AI...")
+    print("Menjalankan Mode Evaluasi Internal MCTS...")
     run_full_evaluation()
